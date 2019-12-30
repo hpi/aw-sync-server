@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+
+// Reads from the local .profile file and writes it to the Supervisor environnment
+
+const { promisify: pify } = require('util')
+const { resolve } = require('path')
+const { exec } = require('child_process')
+const fs = require('fs')
+
+;(async () => {
+  let profile = fs.readFileSync(resolve('../.profile'), 'utf8')
+  let supervisor = fs.readFileSync(resolve('../infra/aw-sync.conf'), 'utf8')
+
+  const profileLines = profile.split('\n')
+
+  const envVars = {}
+  for (const line of profileLines) {
+    let [ name, value ] = line.split('=')
+    name = name.replace('export ', '')
+
+    if (value) {
+      if (value.includes('$(')) {
+        // Is lockbox
+
+        value = value.replace('$(', '')
+        value = value.replace(')', '')
+
+        const { stdout } = await pify(exec)(value)
+
+        value = stdout
+      }
+
+      envVars[name] = value
+    }
+
+  }
+
+  profile = Object.keys(envVars).map((key) => {
+    return `${key}="${envVars[key]}"`
+  }).join(',')
+
+  console.log("PROFILE:", profile)
+
+  supervisor = supervisor.replace(/environment\=\S+/g, `environment=${profile}`)
+
+  console.log("SUP:", supervisor)
+  fs.writeFileSync(resolve('../infra/aw-sync.conf'), supervisor)
+})()
+

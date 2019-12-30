@@ -1,0 +1,9 @@
+#!/bin/bash
+
+rsync -rave "ssh -i ~/.ssh/qnzl" infra/aw-sync.conf root@8.9.3.221:/etc/supervisor/conf.d;
+
+rsync -rave "ssh -i ~/.ssh/qnzl" infra/aw-sync root@8.9.3.221:/etc/nginx/sites-available;
+
+ssh root@8.9.3.221 -i ~/.ssh/qnzl "ln -s /etc/nginx/sites-available/aw-sync /etc/nginx/sites-enabled/ && sudo service nginx reload && sudo service nginx restart && sudo supervisorctl reload && sudo supervisorctl restart aw-sync && certbot --nginx"
+
+
