@@ -4,23 +4,12 @@ const moment = require(`moment`)
 const debug = require(`debug`)(`qnzl:aw-sync:add`)
 const auth = require(`@qnzl/auth`)
 
+const {
+  ISSUER,
+} = process.env
+
 const getBuckets = async (ctx, next) => {
   debug(`got request for getting buckets`)
-
-  const { authorization } = ctx.headers
-
-  if (!authorization) {
-    return res.sendStatus(401)
-  }
-
-  const isValidToken = auth.checkJWT(authorization, `aw:get`, `watchers`, `https://qnzl.co`)
-
-  if (!isValidToken) {
-    debug(`failed to authenticate`)
-    return res.sendStatus(401)
-  }
-
-  debug(`successfully authenticated`)
 
   const { data, timestamp } = ctx.request.body
   const { id } = ctx.params

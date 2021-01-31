@@ -10,33 +10,41 @@ const router = new koaRouter()
 const mergeEvents = (id, events) => {
   let mergedEvents = {}
 
-  if (id.indexOf(`-window`) > -1) {
-    const removedFirefox = events.filter(({ data: { app } }) => {
-      return app !== `Firefox`
+  if (id.indexOf(`window`) > -1) {
+    const noBrowserEvents = events.filter(({ data: { app } }) => {
+      return app !== `Firefox` && app !== `Google-chrome` && app !== `Safari`
     })
 
-    removedFirefox.forEach((event) => {
+    noBrowserEvents.forEach((event) => {
       const { data: { app } } = event
 
       if (app in mergedEvents) {
         mergedEvents[app].duration += event.duration
       } else {
-        mergedEvents[app] = event
+        mergedEvents[app] = { ...event }
       }
     })
 
-  } else if (id.indexOf(`-web-firefox`) > -1) {
-
+  } else if (id.includes(`firefox`) || id.includes(`safari`) || id.includes(`chrome`)) {
     events.forEach((event) => {
-    const { data: { url } } = event
-      const wrappedUrl = new URL(url)
-      const { hostname } = wrappedUrl
+      const { data: { url } } = event
 
-      console.log("EVENT:", event, hostname)
-      if (hostname in mergedEvents) {
-        mergedEvents[hostname].duration += event.duration
-      } else {
-        mergedEvents[hostname] = event
+      try {
+        let hostname = 'New tab'
+
+        if (Boolean(url)) {
+          const wrappedUrl = new URL(url)
+
+          hostname = wrappedUrl.hostname
+        }
+
+        if (hostname in mergedEvents) {
+          mergedEvents[hostname].duration += event.duration
+        } else {
+          mergedEvents[hostname] = { ...event }
+        }
+      } catch (e) {
+        console.log("Error parsing: ", e, url, event)
       }
     })
   }
@@ -45,75 +53,69 @@ const mergeEvents = (id, events) => {
 }
 
 const getEvents = async (ctx, next) => {
-  let { authorization } = ctx.request.headers
   let { id } = ctx.params
   let { date } = ctx.query
 
   debug(`got request for getting events`)
 
-  if (!authorization) {
-    ctx.response.status = 401
-
-    return next()
-  }
-
-  if (!id || !date) {
+  if (!id) {
     ctx.response.status = 400
 
     return next()
   }
 
-  // TODO Use @qnzl/auth instead of magic strings
-  const isValidToken = auth.checkJWT(authorization, `aw:get`, `watchers`, `https://qnzl.co`)
-
-  if (!isValidToken) {
-    debug(`failed to authenticate`)
-    ctx.response.status = 401
-
-    return next()
-  }
-
-  debug(`successfully authenticated`)
-
   try {
-    let data
+    let activityData
 
     const files = await archive.preaddir(`/${id}`)
 
-    date = date.split(` `)[0]
-    const dateTimestamp = moment(date).format(`YYYY-MM-DD`)
-    const dayBeforeTimestamp = moment(dateTimestamp).subtract(1, `day`).format(`YYYY-MM-DD`)
-    const dayAfterTimestamp = moment(dateTimestamp).add(1, `day`).format(`YYYY-MM-DD`)
+    if (date) {
+      date = date.split(` `)[0]
+      const dateTimestamp = moment(date).format(`YYYY-MM-DD`)
+      const dayBeforeTimestamp = moment(date).subtract(1, `day`).format(`YYYY-MM-DD`)
+      const dayAfterTimestamp = moment(date).add(1, `day`).format(`YYYY-MM-DD`)
 
-    const mustMatchDates = [ dayBeforeTimestamp, dateTimestamp, dayAfterTimestamp ]
+      const mustMatchDates = [ dayBeforeTimestamp, dateTimestamp, dayAfterTimestamp ]
 
-    debug(`have ${files.length} files for id ${id}`)
-    data = files.map((file) => {
+      debug(`have ${files.length} files for id ${id}`)
+      activityData = files.map((file) => {
 
-      if (!mustMatchDates.includes(file)) return Promise.resolve(null)
+        if (!mustMatchDates.includes(file)) return Promise.resolve(null)
 
-      debug(`read /${id}/${file}`)
-      return archive.preadFile(`/${id}/${file}`)
-    })
+        debug(`read /${id}/${file}`)
+        return archive.preadFile(`/${id}/${file}`)
+      })
+    } else {
+      activityData = files.map((file) => {
+        debug(`read /${id}/${file}`)
+        return archive.preadFile(`/${id}/${file}`)
+      })
+    }
 
-    debug(`got ${data.length} files of data`)
+    debug(`got ${activityData.length} files of data`)
     // Extract and parse file contents into one big array
-    let resolvedData = await Promise.all(data)
+    let resolvedData = await Promise.all(activityData)
     resolvedData = resolvedData.filter(Boolean).map(JSON.parse)
     resolvedData = [].concat(...resolvedData)
 
-    // Basic filter so response only includes requested events
-    const adjustedAfterDate = moment(date || `2000-01-01`).tz(`America/New_York`).startOf(`day`)
-    const adjustedBeforeDate = moment(date || `2099-01-01`).tz(`America/New_York`).endOf(`day`)
+    let toMergeData = resolvedData
 
-    const filteredData = resolvedData.filter((event) => {
-      event.timestamp = event.timestamp.replace(`+00:00`, `Z`)
-      const eventTimestamp = moment(event.timestamp).tz(`America/New_York`)
+    if (date) {
+      // Basic filter so response only includes requested events
+      const dateString = `${date}T12:00:00Z`
 
-      return eventTimestamp.isAfter(adjustedAfterDate) && eventTimestamp.isBefore(adjustedBeforeDate)
-    })
+      const startOfDay = moment(dateString).tz(`America/New_York`).startOf(`day`)
+      const endOfDay = moment(dateString).tz(`America/New_York`).endOf(`day`)
 
-    const mergedEvents = mergeEvents(id, filteredData)
+      toMergeData = resolvedData.filter((event) => {
+        event.timestamp = event.timestamp.replace(`+00:00`, `Z`)
+        const eventTimestamp = moment(event.timestamp).tz(`America/New_York`)
+
+        return eventTimestamp.isBetween(startOfDay, endOfDay)
+      })
+    }
+
+    const mergedEvents = mergeEvents(id, toMergeData)
 
     debug(`returning ${mergedEvents.length} events`)
 
@@ -122,8 +124,9 @@ const getEvents = async (ctx, next) => {
 
     return next()
   } catch (e) {
-    console.log("EE:", e)
+    console.log(`Got error: `, e)
     ctx.response.status = 500
+
     return next(e)
   }
 }

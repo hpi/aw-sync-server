@@ -1,5 +1,6 @@
 const { promisify: pify } = require(`util`)
 const { archive } = require(`../../drive`)
+const crypto = require(`crypto`)
 const moment = require(`moment-timezone`)
 const debug = require(`debug`)(`qnzl:aw-sync:add`)
 const auth = require(`@qnzl/auth`)
@@ -33,16 +34,23 @@ const getPreexistingContents = async (file) => {
 }
 
 const dedupe = (events) => {
-  const seenEventIds = new Set()
+  const seenEvents = {}
 
   return events.filter((event) => {
-    if (!seenEventIds.has(event.id)) {
-      seenEventIds.add(event.id)
+    const hashCreate = crypto.createHash(`sha256`)
+    hashCreate.update(`${event.id}:${event.timestamp}:${event.duration}`)
 
-      return true
+    const eventHash = hashCreate.digest(`hex`)
+
+    const existingEvent = seenEvents[eventHash]
+
+    if (existingEvent) {
+      return false
     }
 
-    return false
+    seenEvents[eventHash] = event
+
+    return true
   })
 }
 
@@ -50,19 +58,6 @@ const addEvents = async (ctx, next) => {
   const { id } = ctx.params
   debug(`got request for adding activity for watcher ${id}`)
 
-  const { authorization } = ctx.req.headers
-
-  const isValidToken = auth.checkJWT(authorization, `aw:update`, `watchers`, `https://qnzl.co`)
-
-  if (!isValidToken) {
-    debug(`failed to authenticate`)
-
-    ctx.response.statusCode = 401
-
-    return next()
-  }
-
-  debug(`successfully authenticated`)
 
   const { data } = ctx.request.body
 
