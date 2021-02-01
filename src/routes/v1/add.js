@@ -37,18 +37,13 @@ const dedupe = (events) => {
   const seenEvents = {}
 
   return events.filter((event) => {
-    const hashCreate = crypto.createHash(`sha256`)
-    hashCreate.update(`${event.id}:${event.timestamp}:${event.duration}`)
-
-    const eventHash = hashCreate.digest(`hex`)
-
-    const existingEvent = seenEvents[eventHash]
+    const existingEvent = seenEvents[event.id]
 
     if (existingEvent) {
       return false
     }
 
-    seenEvents[eventHash] = event
+    seenEvents[event.id] = event
 
     return true
   })
