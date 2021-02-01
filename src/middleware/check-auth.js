@@ -6,26 +6,27 @@ const {
   JWT_PUBLIC_KEY,
 } = process.env
 
-module.exports = (desiredClaim) => (ctx, next) => {
+module.exports = (desiredClaim) => async (ctx, next) => {
   const { authorization } = ctx.req.headers
 
   const auth = new Auth(JWT_PUBLIC_KEY)
 
-  const isValidToken = auth.checkJWT(authorization, {
+  const [ _, token ] = authorization.split(` `)
+
+  const isValidToken = auth.check(token, {
     desiredClaim,
     subject: `watchers`,
     issuer: ISSUER,
-  }`aw:update`, `watchers`, ISSUER)
+  })
 
-  if (!isValidToken) {
-    debug(`failed to authenticate`)
+  if (isValidToken) {
+    debug(`successfully authenticated`)
 
-    ctx.response.statusCode = 401
-
-    return next(`could not authenticate request`)
+    return next()
   }
 
-  debug(`successfully authenticated`)
+  debug(`failed to authenticate`)
 
-  return next()
+  ctx.status = 401
+  ctx.body = `could not authenticate`
 }

@@ -79,8 +79,9 @@ const getEvents = async (ctx, next) => {
 
       debug(`have ${files.length} files for id ${id}`)
       activityData = files.map((file) => {
-
-        if (!mustMatchDates.includes(file)) return Promise.resolve(null)
+        if (!mustMatchDates.includes(file)) {
+          return Promise.resolve(null)
+        }
 
         debug(`read /${id}/${file}`)
         return archive.preadFile(`/${id}/${file}`)
@@ -93,6 +94,7 @@ const getEvents = async (ctx, next) => {
     }
 
     debug(`got ${activityData.length} files of data`)
+
     // Extract and parse file contents into one big array
     let resolvedData = await Promise.all(activityData)
     resolvedData = resolvedData.filter(Boolean).map(JSON.parse)
@@ -108,8 +110,9 @@ const getEvents = async (ctx, next) => {
       const endOfDay = moment(dateString).tz(`America/New_York`).endOf(`day`)
 
       toMergeData = resolvedData.filter((event) => {
-        event.timestamp = event.timestamp.replace(`+00:00`, `Z`)
         const eventTimestamp = moment(event.timestamp).tz(`America/New_York`)
+
+        console.log(`${event.timestamp} -> ${eventTimestamp.format()} - ${JSON.stringify(event.data)}`)
 
         return eventTimestamp.isBetween(startOfDay, endOfDay)
       })
@@ -119,13 +122,13 @@ const getEvents = async (ctx, next) => {
 
     debug(`returning ${mergedEvents.length} events`)
 
-    ctx.response.status = 200
-    ctx.response.body = mergedEvents
+    ctx.status = 200
+    ctx.body = mergedEvents
 
     return next()
   } catch (e) {
     console.log(`Got error: `, e)
-    ctx.response.status = 500
+    ctx.status = 500
 
     return next(e)
   }
