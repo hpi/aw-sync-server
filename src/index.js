@@ -21,10 +21,12 @@ const router = new koaRouter()
 const addEvents = require(`./routes/v1/add`)
 const getEvents = require(`./routes/v1/get`)
 const getBuckets = require(`./routes/v1/buckets`)
+const auditEvents = require(`./routes/v1/audit`)
 
 const checkAuth = require(`./middleware/check-auth`)
 
 router.post(`/api/v1/add/:id`, checkAuth(`aw:update`), addEvents)
+router.get(`/api/v1/audit/:id`, checkAuth(`aw:audit`), auditEvents)
 router.get(`/api/v1/get/:id`, checkAuth(`aw:get`), getEvents)
 router.get(`/api/v1/buckets`, checkAuth(`aw:get`), getBuckets)
 router.get(`/ping`, (ctx, next) => {

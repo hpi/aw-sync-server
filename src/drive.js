@@ -23,10 +23,20 @@ archive.on(`ready`, () => {
   })
 })
 
+hyperdrive.prototype.pmkdir = (path) => {
+  return new Promise((resolve, reject) => {
+    archive.mkdir(path, { recursive: true }, (err, data) => {
+      if (err) return reject(err)
+
+      return resolve(data)
+    })
+  })
+}
+
 hyperdrive.prototype.pwriteFile = (path, data) => {
   return new Promise((resolve, reject) => {
-    archive.writeFile(path, data, (err, data) => {
-      if (err) return reject(err)
+    archive.writeFile(path, data, async (err, data) => {
+      if (err) return reject(data)
 
       return resolve(data)
     })

@@ -2,14 +2,14 @@ const { archive } = require(`../../drive`)
 const koaRouter = require(`koa-router`)
 const { URL } = require(`url`)
 const moment = require(`moment-timezone`)
-const debug = require(`debug`)(`qnzl:aw-sync:get`)
+const debug = require(`debug`)(`qnzl:aw-sync:audit`)
 const auth = require(`@qnzl/auth`)
 
 const router = new koaRouter()
 
-const getEvents = async (ctx, next) => {
+const auditEvents = async (ctx, next) => {
   let { id } = ctx.params
-  let { date } = ctx.query
+  let { date, app } = ctx.query
 
   debug(`got request for getting events`)
 
@@ -20,7 +20,9 @@ const getEvents = async (ctx, next) => {
   }
 
   try {
-    let eventPromises
+    let activityData
+
+    const files = await archive.preaddir(`/${id}`)
 
     if (date) {
       date = date.split(` `)[0]
@@ -30,41 +32,30 @@ const getEvents = async (ctx, next) => {
 
       const mustMatchDates = [ dayBeforeTimestamp, dateTimestamp, dayAfterTimestamp ]
 
-      eventPromises = mustMatchDates.map(async (date) => {
-        debug(`read /${id}/${date}`)
-        try {
-          const data = await archive.preadFile(`/${id}/${date}`)
-
-          return data
-        } catch (e) {
-          return null
+      debug(`have ${files.length} files for id ${id}`)
+      activityData = files.map((file) => {
+        if (!mustMatchDates.includes(file)) {
+          return Promise.resolve(null)
         }
+
+        debug(`read /${id}/${file}`)
+        return archive.preadFile(`/${id}/${file}`)
       })
     } else {
-      const files = await archive.preaddir(`/${id}`)
-
-      eventPromises = files.map(async (file) => {
+      activityData = files.map((file) => {
         debug(`read /${id}/${file}`)
-        try {
-          const data = await archive.preadFile(`/${id}/${file}`)
-
-          return data
-        } catch (e) {
-          return null
-        }
+        return archive.preadFile(`/${id}/${file}`)
       })
     }
 
-    debug(`got ${eventPromises.length} files of data`)
+    debug(`got ${activityData.length} files of data`)
 
-    const events = await Promise.all(eventPromises)
-
-    console.log("EVENTS:", events)
     // Extract and parse file contents into one big array
-    resolvedData = events.filter(Boolean).map(JSON.parse)
+    let resolvedData = await Promise.all(activityData)
+    resolvedData = resolvedData.filter(Boolean).map(JSON.parse)
     resolvedData = [].concat(...resolvedData)
 
-    let filteredData = resolvedData
+    let toMergeData = resolvedData
 
     if (date) {
       // Basic filter so response only includes requested events
@@ -73,15 +64,28 @@ const getEvents = async (ctx, next) => {
       const startOfDay = moment(dateString).tz(`America/New_York`).startOf(`day`)
       const endOfDay = moment(dateString).tz(`America/New_York`).endOf(`day`)
 
-      filteredData = resolvedData.filter((event) => {
+      debug(`before date filter: ${toMergeData.length}`)
+      toMergeData = resolvedData.filter((event) => {
         const eventTimestamp = moment(event.timestamp).tz(`America/New_York`)
 
+        debug(`w/o tz: ${event.timestamp}, w/ tz: ${eventTimestamp}`)
+        debug(`is between: ${startOfDay} and ${endOfDay}`)
         return eventTimestamp.isBetween(startOfDay, endOfDay)
+      })
+      debug(`after date filter: ${toMergeData.length}`)
+    }
+
+    if (app) {
+      toMergeData = resolvedData.filter(({ data: { app: _app } }) => {
+        debug(`filter: ${app} ?== ${_app}`)
+        return app === _app
       })
     }
 
+    debug(`returning ${toMergeData.length} events`)
+
     ctx.status = 200
-    ctx.body = filteredData
+    ctx.body = toMergeData
 
     return next()
   } catch (e) {
@@ -92,5 +96,5 @@ const getEvents = async (ctx, next) => {
   }
 }
 
-module.exports = getEvents
+module.exports = auditEvents
 
